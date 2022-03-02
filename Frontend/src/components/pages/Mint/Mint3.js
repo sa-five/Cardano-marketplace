@@ -1,0 +1,479 @@
+import React, {useState, useEffect} from "react";
+
+import { navigate } from "@reach/router";
+import { Container } from "react-bootstrap";
+import { createGlobalStyle } from 'styled-components';
+import Footer from '../../components/footer';
+import BarcodeScannerComponent from "react-qr-barcode-scanner";
+
+import NamiWalletApi, { Cardano } from '../../../nami-js/nami';
+import blockfrostApiKey from '../../../config'; 
+import {NotificationManager} from 'react-notifications';
+
+let nami;
+
+const GlobalStyles = createGlobalStyle`
+    .home-container {
+        position: relative;
+    }
+    .home-background {
+        position: absolute;
+        z-index: -2;
+        width: 100%;
+        height: 100%;
+        top: 0;
+        left: 0;
+        background: rgb(74, 159, 146);
+        background: linear-gradient( 180deg, #2536a0 0%, #163872 10%, #57b59a 45%, #163872 90%, #2536a0 100% );
+    }
+    section {
+        padding-top: 10rem;
+        padding-bottom: 1rem;
+        @media screen and (max-width: 768px) {
+            padding-top: 5rem;
+        }
+    }
+    .form-container {
+        background: rgb(66,146,145);
+        border: solid 1px #ddd;
+        border-radius: 1.5rem;
+        padding: 40px;
+        @media screen and (max-width: 768px) {
+            padding: 20px;
+        }
+    }
+    .panel-header {
+        span {
+            font-size: 1.2rem;
+            @media screen and (max-width: 768px) {
+                font-size: 1rem;
+            }
+        }
+    }
+    .select_panel {
+        background: rgba(141,189,188,0.7);
+        border-radius: 20px;
+        padding: 35px 40px;
+        span {
+            font-size: 1.2rem;
+            color: black;
+            @media screen and (max-width: 768px) {
+                font-size: 1rem;
+            }
+        }
+        .spinner-border {
+            color: black;
+        }
+        .copy-address {
+            font-size: 1.5rem;
+            line-height: 2.5rem;
+        }
+    }
+    .check-panel {
+        font-size: 1.2rem;
+        color: black;
+        .description {
+            color: black;
+            padding-left: 2rem;
+        }
+    }
+    .panel-button {
+        text-align: right;
+        @media screen and (max-width: 768px) {
+            text-align: center;
+        }
+    }
+    .form-control {
+        background: white;
+    }
+    .form_label {
+        color: black;
+    }
+    .mr-0 {
+        margin-right: 0 !important;
+    }
+`;
+
+const Mint3 = ({  }) => {
+
+    const [data, setData] = useState("Not Found");
+    const [torchOn, setTorchOn] = useState(false);
+    const [connected, setConnnected] = useState(false);
+    const [currentAddr, setCurrentAddr] = useState("");
+    const [recipientAddress, setRecipientAddress] = useState("addr_test1qrgdtzs4922matfqtzh4vfnffm50wrehc77m0pst65tvapzfhec45efhlmtczlzkylnpkc7mxj0ar0dnd2xts2vleujsgvlww7")
+    const [policyExpiration, setPolicyExpiration] = useState(new Date());
+    const [checked1, setChecked1] = useState(false);
+    const [checked2, setChecked2] = useState(false);
+    const [checked3, setChecked3] = useState(false);
+    const [mintingOption, setMintingOption] = useState(0);
+    const [isPaying, setIsPaying] = useState(false);
+
+    const [complexTransaction, setComplexTransaction] = useState(
+        {
+            recipients: 
+            [
+                {
+                    address: recipientAddress, 
+                    amount: 10, 
+                    mintedAssets:
+                    [
+                        {
+                            assetName: "MyNFT", 
+                            quantity:'1',  
+                            policyId: "Example PolicyID", 
+                            policyScript:"ExamplePolicy"
+                        }
+                    ] 
+                }
+            ]
+        }
+    );
+
+
+    const sendFeesOnly = async ()=>
+    {         
+        try {       
+            let amount = 0;
+            if(mintingOption === 1)
+            {
+                console.log("option1 no minting fee 1")
+                amount = 1;
+            }
+            if(mintingOption === 2)
+            {
+                console.log("option2 with minting fee 10")
+                amount = 10;
+            }
+            if(mintingOption === 3)
+            {
+                console.log("option3 with minting fee 8")
+                amount = 8;
+            }
+            const recipients = [{ "address": recipientAddress, "amount": amount }]
+            let utxos = await nami.getUtxosHex();
+            const myAddress = await nami.getAddress();        
+            let netId = await nami.getNetworkId();
+            const t = await nami.transaction(
+                {
+                    PaymentAddress: myAddress,
+                    recipients: recipients,
+                    metadata: null,
+                    utxosRaw: utxos,
+                    networkId: netId.id,
+                    ttl: 3600,
+                    multiSig: null
+            })
+            console.log("t = ", t);
+            const witnesses = await nami.signTx(t)
+            console.log("netId = ", netId);
+            const txHash = await nami.submitTx({
+                transactionRaw: t,
+                witnesses: [witnesses],
+                networkId: netId.id
+            })
+            console.log("txHash = ", txHash); 
+            NotificationManager.success("Payment succeed.");
+        } 
+        catch (error) 
+        {
+            console.log("error : ", error);
+            NotificationManager.success("Payment faild."+error.message);
+        }
+    }
+
+    const sendFeesAndNFT = async () =>
+    {
+        try {                
+            var file = sessionStorage.getItem("selected_file");            
+            var item_name = sessionStorage.getItem("item_name");
+            var item_description = sessionStorage.getItem("item_description");
+            var item_creator = sessionStorage.getItem("item_creator");
+            var item_collection = sessionStorage.getItem("item_collection");
+            var item_link = sessionStorage.getItem("item_link");
+            var item_royalty = sessionStorage.getItem("item_royalty");
+                            
+            await nami.enable();
+            var myAddress = await nami.getHexAddress();            
+            let networkId = await nami.getNetworkId();
+            var newPolicy;
+            newPolicy = await nami.createLockingPolicyScript(myAddress, networkId.id, policyExpiration);
+            var complexTrans = complexTransaction;
+            complexTrans.recipients[0].mintedAssets[0].policyId = newPolicy.id; 
+            complexTrans.recipients[0].mintedAssets[0].policyScript = newPolicy.script; 
+            if(mintingOption === 1)
+            {
+                console.log("option1 no minting fee")
+                complexTrans.recipients[0].amount = 1;
+            }
+            if(mintingOption === 2)
+            {
+                console.log("option2 with minting fee 10")
+                complexTrans.recipients[0].amount = 10;
+            }
+            if(mintingOption === 3)
+            {
+                console.log("option2 with minting fee 8")
+                complexTrans.recipients[0].amount = 8;
+            }
+            complexTrans.metadata = 
+            {
+                "721": 
+                {
+                    [newPolicy.id]: 
+                    {
+                        [complexTrans.recipients[0].mintedAssets[0].assetName]: {name: item_name, description: item_description, image: "ipfs://"+file }
+                    } 
+                }
+            };            
+            const recipients = complexTrans.recipients
+            const metadataTransaction = complexTrans.metadata
+            console.log("complexTrans = ", complexTrans);
+            let utxos = await nami.getUtxosHex();
+            
+            myAddress = await nami.getAddress();
+            console.log("myAddress = ", myAddress)
+            let netId = await nami.getNetworkId();
+            console.log("netId.id = ", netId.id)
+
+            const t = await nami.transaction({
+                PaymentAddress: myAddress,
+                recipients: recipients,
+                metadata: metadataTransaction,
+                utxosRaw: utxos,
+                networkId: netId.id,
+                ttl: 3600,
+                multiSig: null
+            })
+            console.log("t = ", t)
+
+            const signature = await nami.signTx(t)
+            console.log("signature = ", signature, "netId.id = ", netId.id)
+            const txHash = await nami.submitTx({
+                transactionRaw: t,
+                witnesses: [signature],
+                networkId: netId.id
+            })
+            console.log("txHash = ", txHash)
+            
+            NotificationManager.success("Minting succeed.");
+        } 
+        catch (error) 
+        {
+            console.log("error : ", error);
+            NotificationManager.success("Minting failed."+error.message);
+        }
+    }
+
+    const onPayAndMint = async() => 
+    {
+        console.log("[onPayAndMint] mintingOption = ", mintingOption);
+
+        if(mintingOption === 0) 
+        {
+            NotificationManager.warning("Please select a payment option and retry.")
+            return;
+        }
+        if(currentAddr === "") 
+        {
+            NotificationManager.warning("Please input a wallet address and retry.")
+            return;
+        }
+        setIsPaying(true);
+        await sendFeesAndNFT();  //sendFeesAndNFT();  //sendFeesOnly() ;
+        setIsPaying(false);
+        navigate("/");
+    }
+
+    const onChangeWalletAddress = (e) => 
+    {
+        setCurrentAddr(e.target.value);
+    }
+
+    useEffect(() => {
+        console.log("mintingOption changed. will change policy espiration..");
+
+        const defaultDate = new Date();
+        if(mintingOption === 1) defaultDate.setTime(defaultDate.getTime() + (1 * 60 * 60 * 24 * 90 * 1000))
+        if(mintingOption === 2 || mintingOption === 3) defaultDate.setTime(defaultDate.getTime() + (1 * 10 * 1000))
+        setPolicyExpiration(defaultDate);
+
+    }, [mintingOption])
+
+    useEffect(() => {
+      let connected = sessionStorage.getItem("connected");
+      setConnnected(connected);
+      if(connected)
+      {
+        async function t() {
+            const S = await Cardano();
+            nami = new NamiWalletApi(
+                S,
+                window.cardano,
+               blockfrostApiKey
+            )
+            await nami.getAddress().then((newAddress) => { console.log(newAddress); setCurrentAddr(newAddress) })
+        }
+        t();
+      }
+    })
+
+    const onOptionSelect = (optionName) =>
+    {
+        switch(optionName)
+        {
+            case "option1":
+                setChecked1(true);
+                setChecked2(false);
+                setChecked3(false);
+                setMintingOption(1);
+                break;
+            case "option2":
+                setChecked1(false);
+                setChecked2(true);
+                setChecked3(false);
+                setMintingOption(2);
+                break;
+            case "option3":
+                setChecked1(false);
+                setChecked2(false);
+                setChecked3(true);
+                setMintingOption(3);
+                break;
+            default:
+                setMintingOption(0);
+                break;
+        }
+    }
+
+    return (
+        <>
+            <GlobalStyles />
+            <div className="home-container">
+                <div className="home-background"></div>
+                <section className='container'>
+                    <Container className="form-container">
+                        <div className="row">
+                            <div className="col-lg-12 mb-2 panel-header">
+                                <h2>Pay</h2>
+                                <div className="check-panel">
+                                    <div className="form-check">
+                                        <input type="checkbox" className="form-check-input" id="check1" name="option1" 
+                                            checked={checked1}
+                                            onChange={() => onOptionSelect("option1")}
+                                        />
+                                        <label className="form-check-label" htmlFor="check1">Mint and Sell with us</label>
+                                    </div>
+                                    <span className="description">
+                                        If you list your NFT with us for at least 90 days, then you only pay the network fees
+                                        per mint. Under this option, you won't be able to transfer your NFT until the end of 90
+                                        days, unless sold on our site.
+                                    </span>
+                                </div>
+                                <div className="check-panel">
+                                    <div className="form-check">
+                                        <input type="checkbox" className="form-check-input" id="check2" name="option2" 
+                                            checked={checked2}
+                                            onChange={() => onOptionSelect("option2")}
+                                        />
+                                        <label className="form-check-label" htmlFor="check1">Mint, pay, and stay</label>
+                                    </div>
+                                    <span className="description">
+                                        Pay a minting fee in addtion to the network fee per mint, but you can transfer your
+                                        NFT at anytime.
+                                    </span>
+                                </div>
+                                <div className="check-panel">
+                                    <div className="form-check">
+                                        <input type="checkbox" className="form-check-input" id="check3" name="option3"
+                                            checked={checked3}
+                                            onChange={() => onOptionSelect("option3")}
+                                        />
+                                        <label className="form-check-label" htmlFor="check1">Mint and go</label>
+                                    </div>
+                                </div>
+                            </div>
+                            <div className="col-lg-12">
+                                <div className="select_panel">
+                                    <div className="row">
+                                        <div className="col-lg-12 mb-4">
+                                            <span>
+                                                Send XXX ADA for minting. Note: do not use an exchange, only use the Nami walet .
+                                                Send the specified ammount. If you have any questions or need help contact us at
+                                                XXX. You can use the barcode or copy the wallet address bellow.
+                                            </span>
+                                        </div>
+                                        <div className="col-lg-5" align="center">
+                                           <BarcodeScannerComponent
+                                                width={500}
+                                                height={500}
+                                                torch={torchOn}
+                                                onUpdate={(err, result) => {
+                                                    if (result) {
+                                                        setData(result.text);
+
+                                                    }
+                                                    else{
+                                                        setData("Not Found");
+
+                                                    } 
+                                                }}
+                                            />
+                                            <p>{data}</p>
+                                            <button className="btn-main mr-0 mt-3" style={{ width: '15rem' }} onClick={() => setTorchOn(!torchOn)}>
+                                                Switch Torch {torchOn ? "Off" : "On"}
+                                            </button>
+                                        </div>
+                                        <div className="col-lg-7">
+                                            <div className="form_label" align="left" >Wallet address</div>
+                                            <div className="row">
+                                                <div className="col-md-11 col-sm-10">
+                                                    <input type="text" name="wallet_address" id="item_price" className="form-control mb-2"
+                                                        defaultValue={currentAddr}
+                                                        onChange={(e) => onChangeWalletAddress(e)}
+                                                        placeholder="e.g addr1qykn8nchkf5ckg0clq6pa580a50t3zdc06prgwcaj605wpd2g0z6sy0pturmfuru097z3yxknjpnm7fymm96n2vyfxaq0gk62p" />
+                                                </div>
+                                                <div className="col-md-1 col-sm-2 copy-address" align="center">
+                                                    <i className="fa fa-clone"></i>
+                                                </div>
+                                            </div>
+                                            {
+                                                mintingOption === 0 && 
+                                                <div align="left">
+                                                    <div className="spinner-border"></div>
+                                                    <span>&nbsp;&nbsp;Please select a minting option.</span>
+                                                </div>
+                                            }
+                                            {
+                                                mintingOption !== 0 && 
+                                                <div align="left">
+                                                    <div className="spinner-border" style={{display: "none"}}></div>
+                                                    <span>&nbsp;&nbsp;Payment is confirmed</span>
+                                                </div>
+                                            }
+                                            {
+                                                isPaying && 
+                                                <><br/>
+                                                <div align="left">
+                                                    <div className="spinner-border"></div>
+                                                    <span>&nbsp;&nbsp;Processing transaction.</span>
+                                                </div>
+                                                </>
+                                            }
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            <div className="col-lg-12 panel-button" align='right'>
+                               {!isPaying && <button className="btn-main mr-0 mt-3" style={{ width: '12rem' }} onClick={() =>{onPayAndMint()}}>Pay and mint</button>}
+                               {isPaying && <button className="btn-main mr-0 mt-3" style={{ width: '12rem' }} >Processing...</button>}
+                            </div>
+                        </div>
+                    </Container>
+                </section>
+                <Footer />
+            </div>
+        </>
+    );
+};
+
+export default Mint3;
